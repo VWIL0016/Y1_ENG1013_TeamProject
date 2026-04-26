@@ -26,6 +26,9 @@ Traffic Light System for ENG1013 Lab Assignment
 4. Press 'URL' to go into that tab
 5. Paste this link into the URL section (https://github.com/VWIL0016/ENG1013_TrafficLights)
 6. Press 'Clone'
-7. 
-8. Press the 'Repository' button (on the same row as 'File')
-9. Press 'Open in Visual Studio Code'
+7. Press the 'Repository' button (on the same row as 'File')
+8. Press 'Open in Visual Studio Code'
+9. Code in VSCode
+10. When you want to save to the repository, go back to GitHub Desktop and press on the 'commit to main' button in the bottom-left corner
+    - You may want to add a summary before committing
+11. Press 'Push to Origin'

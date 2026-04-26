@@ -21,7 +21,11 @@ Traffic Light System for ENG1013 Lab Assignment
 
 ## HOW TO CODE ON THIS REPOSITORY
 1. Open Github Desktop
-2. Go to the Current Repository Button (upper-left corner, near 'File')
-3. Press the button for a dropdown menu, and go to the 'Add' menu
-4. Press 'Add Existing Repository'
-5. 
+2. Go to the 'File' button (upper-left corner)
+3. Press the button for a dropdown menu, and go to the 'Clone Repository' menu
+4. Press 'URL' to go into that tab
+5. Paste this link into the URL section (https://github.com/VWIL0016/ENG1013_TrafficLights)
+6. Press 'Clone'
+7. 
+8. Press the 'Repository' button (on the same row as 'File')
+9. Press 'Open in Visual Studio Code'

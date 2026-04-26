@@ -16,8 +16,9 @@ Traffic Light System for ENG1013 Lab Assignment
 2. Download + Install [Git](https://git-scm.com/install/)
 3. Download + Install [GitHub Desktop](https://desktop.github.com/download)
 4. Create a GitHub Account (on [github.com](github.com))
+5. Email [Vivek Wilson](mailto:vwil0016@student.monash.edu) for access to the assignment
 
-**ALTERNATIVELY:** Download + Install [GitHub Desktop](https://desktop.github.com/download) and follow the instructions (it will tell you to get Git and a GitHub Account). You will still need VSCode as a code editor.
+**ALTERNATIVELY:** Download + Install [GitHub Desktop](https://desktop.github.com/download) and follow the instructions (it will tell you to get Git and a GitHub Account). You will still need VSCode as a code editor and to email [Vivek Wilson](mailto:vwil0016@student.monash.edu).
 
 ## HOW TO CODE ON THIS REPOSITORY
 1. Open Github Desktop
@@ -31,4 +32,4 @@ Traffic Light System for ENG1013 Lab Assignment
 9. Code in VSCode
 10. When you want to save to the repository, go back to GitHub Desktop and press on the 'commit to main' button in the bottom-left corner
     - You may want to add a summary before committing
-11. Press 'Push to Origin'
+11. Press 'Push Origin' above the centre of the screen

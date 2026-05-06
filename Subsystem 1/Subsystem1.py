@@ -1,12 +1,10 @@
-# Version 2.0
+# Version 3.0
 # Author: Vivek Wilson
 
 '''
 Notes:
-- Everything works (1.R1-1.R4)
+- Everything works (1.R1-1.R4, 1.G1)
 -Waiting on confirmation before adding time-reset
-Upcoming:
-- WL1: Yellow flashing light at 2Hz while TL1 OR TL2 != green
 '''
 
 from pymata4 import pymata4 as pymata
@@ -19,7 +17,7 @@ board = pymata.Pymata4()
 usSensorHeightCm = 800
 defaultOverheightLimitM = 4.0
 defaultOverheightLimitCm = defaultOverheightLimitM * 100
-mainLoopIntervalS = .5
+mainLoopIntervalS = .1
 
 trafficLightPins = {
     1: {"red": 4, "yellow": 3, "green": 2},
@@ -30,6 +28,8 @@ ultrasonicSensorPins = {
     1: (8, 9),
     2: (10, 11),
 }
+
+warningLightPins = (12, 13)
 
 sonarPinToSensor = {
     ultrasonicSensorPins[1][0]: 1,
@@ -71,6 +71,11 @@ trafficLightTriggerTime = {
     2: None,
 }
 
+warningLightState = None
+
+warningLightTriggerTime = None
+warningLightPhaseDurationS = 0.5
+
 decisionLoggingEnabled = False
 
 
@@ -79,6 +84,9 @@ decisionLoggingEnabled = False
 for lightPins in trafficLightPins.values(): #LED Setup
     for pin in lightPins.values():
         board.set_pin_mode_digital_output(pin)
+
+for pin in warningLightPins:
+    board.set_pin_mode_digital_output(pin)
 
 
 def sonar_callback(data): 
@@ -161,6 +169,11 @@ def both_traffic_lights_green():
     return trafficLightState[1] == "green" and trafficLightState[2] == "green"
 
 
+def set_warning_light_output(activePinIndex):
+    for pinIndex, pin in enumerate(warningLightPins):
+        board.digital_write(pin, 1 if pinIndex == activePinIndex else 0)
+
+
 def initialise_traffic_light(trafficLightId):
     lightPins = trafficLightPins[trafficLightId]
 
@@ -215,6 +228,43 @@ def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
     log_decision(f"Traffic light {trafficLightId}: sequence finished and reset to green.")
 
 
+def start_warning_light(triggerTimestamp):
+    global warningLightTriggerTime
+    if warningLightTriggerTime is None:
+        warningLightTriggerTime = time.time()
+        log_decision(
+            f"Warning light: sequence started at "
+            f"{human_readable_time(triggerTimestamp)}."
+        )
+    else:
+        log_decision(f"Warning light: sequence already active")
+
+
+def update_warning_light_sequence(triggerTimestamp):
+    global warningLightState, warningLightTriggerTime
+    elapsedTime = time.time() - triggerTimestamp
+    log_decision(
+        f"Warning light: evaluating state from "
+        f"{warningLightState} at {elapsedTime:.2f}s elapsed."
+    )
+    if both_traffic_lights_green():
+        warningLightState = None
+        warningLightTriggerTime = None
+        set_warning_light_output(None)
+        log_decision(f"Warning light: both traffic lights green, sequence reset to OFF.")
+        return
+
+    activePinIndex = int(elapsedTime / warningLightPhaseDurationS) % len(warningLightPins)
+
+    if warningLightState != activePinIndex:
+        warningLightState = activePinIndex
+        set_warning_light_output(activePinIndex)
+        log_decision(
+            f"Warning light: switched to LED {activePinIndex + 1} "
+            f"({elapsedTime:.2f}s elapsed)."
+        )
+
+
 def report_overheight(sensorId, heightCm, detectedAt):
     print(
         f"Overheight detected at US{sensorId}: "
@@ -243,6 +293,7 @@ def handle_us1_detection(reading, overheightLimitCm):
     lastReportedDetection[1] = detectedAt
     report_overheight(1, detectedHeightCm, detectedAt)
     start_traffic_light_sequence(1, detectedAt)
+    start_warning_light(detectedAt)
 
 
 def handle_us2_detection(reading, overheightLimitCm):
@@ -268,6 +319,7 @@ def handle_us2_detection(reading, overheightLimitCm):
     log_decision("US2: same-vehicle matching disabled, triggering both traffic lights.")
     start_traffic_light_sequence(1, detectedAt)
     start_traffic_light_sequence(2, detectedAt)
+    start_warning_light(detectedAt)
 
 
 def prompt_overheight_limit_cm():
@@ -285,7 +337,7 @@ def prompt_overheight_limit_cm():
             print("Invalid input. Please enter a valid number for the overheight threshold.")
 
 
-def update_all_traffic_lights():
+def update_all_lights():
     for trafficLightId, triggerTimestamp in trafficLightTriggerTime.items():
         if triggerTimestamp is not None:
             log_decision(
@@ -293,11 +345,13 @@ def update_all_traffic_lights():
                 f"{human_readable_time(triggerTimestamp)}, updating sequence."
             )
             update_traffic_light_sequence(trafficLightId, triggerTimestamp)
-        else:
-            log_decision(
-                f"Traffic light {trafficLightId}: no active trigger, staying "
-                f"{trafficLightState[trafficLightId]}."
-            )
+    if warningLightTriggerTime is not None:
+        update_warning_light_sequence(warningLightTriggerTime)
+    else:
+        log_decision(
+            f"Warning light: no active trigger, staying "
+            f"{warningLightState}."
+        )
 
 
 def prompt_run_mode():
@@ -315,6 +369,7 @@ def prompt_run_mode():
 def initialise_subsystem():
     for trafficLightId in trafficLightPins:
         initialise_traffic_light(trafficLightId)
+    set_warning_light_output(None)
 
 
 # --- Main Program ---
@@ -343,7 +398,7 @@ def main():
                 lastProcessedSensorTimestamp[2] = us2Reading[1]
                 handle_us2_detection(us2Reading, overheightLimitCm)
 
-            update_all_traffic_lights()
+            update_all_lights()
             time.sleep(mainLoopIntervalS)
         except KeyboardInterrupt:
             board.shutdown()

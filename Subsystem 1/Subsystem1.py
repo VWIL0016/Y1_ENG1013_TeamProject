@@ -1,11 +1,12 @@
-# Version 1.0
+# Version 2.0
 # Author: Vivek Wilson
 
 '''
-Notes from testing: US1&2 work
-TL1&2 Need work. Get stuck on yellow, barely any green. No red
-WL1 Pending
-More notes pending.
+Notes:
+- Everything works (1.R1-1.R4)
+-Waiting on confirmation before adding time-reset
+Upcoming:
+- WL1: Yellow flashing light at 2Hz while TL1 OR TL2 != green
 '''
 
 from pymata4 import pymata4 as pymata
@@ -15,21 +16,14 @@ board = pymata.Pymata4()
 
 # --- Approach Height Detection Subsystem Configuration ---
 
-usSensorHeightCm = 400
+usSensorHeightCm = 800
 defaultOverheightLimitM = 4.0
 defaultOverheightLimitCm = defaultOverheightLimitM * 100
-
-sameSensorWindowS = 1.0
-us1ToUs2ToleranceS = 2.0
-heightMatchToleranceCm = 20.0
-vehicleRetentionWindowS = 35.0
-
-vehicleSpeedKmh = 100
-distanceUs1ToUs2M = 5.0
+mainLoopIntervalS = .5
 
 trafficLightPins = {
-    1: {"yellow": 2, "red": 3, "green": 4},
-    2: {"yellow": 5, "red": 6, "green": 7},
+    1: {"red": 4, "yellow": 3, "green": 2},
+    2: {"red": 7, "yellow": 6, "green": 5},
 }
 
 ultrasonicSensorPins = {
@@ -43,17 +37,6 @@ sonarPinToSensor = {
     ultrasonicSensorPins[2][0]: 2,
     ultrasonicSensorPins[2][1]: 2,
 }
-
-
-def calc_delta_time_us1_to_us2(vehicleSpeedKmh, sensorDistanceM):
-    metresPerSecond = vehicleSpeedKmh * (1000 / 3600)
-    return sensorDistanceM / metresPerSecond
-
-
-expectedUs1ToUs2TimeS = calc_delta_time_us1_to_us2(
-    vehicleSpeedKmh,
-    distanceUs1ToUs2M,
-)
 
 
 # --- Runtime State ---
@@ -78,16 +61,6 @@ lastReportedDetection = {
     2: None,
 }
 
-lastReportedClearance = {
-    1: None,
-    2: None,
-}
-
-lastNoDataReportTime = {
-    1: 0,
-    2: 0,
-}
-
 trafficLightState = {
     1: "green",
     2: "green",
@@ -98,17 +71,17 @@ trafficLightTriggerTime = {
     2: None,
 }
 
-overheightVehicles = []
+decisionLoggingEnabled = False
 
 
 # --- Hardware Setup ---
 
-for lightPins in trafficLightPins.values():
+for lightPins in trafficLightPins.values(): #LED Setup
     for pin in lightPins.values():
         board.set_pin_mode_digital_output(pin)
 
 
-def sonar_callback(data):
+def sonar_callback(data): 
     if len(data) < 3:
         return
 
@@ -142,25 +115,25 @@ def format_distance_m(distanceCm):
     return f"{cm_to_m(distanceCm):.2f}m"
 
 
+def log_decision(message):
+    if decisionLoggingEnabled:
+        print(f"[LOG] {message}")
+
+
 def refresh_sonar_readings():
     for sensorId, pins in ultrasonicSensorPins.items():
         triggerPin = pins[0]
         clearanceCm, timestamp = board.sonar_read(triggerPin)
 
         if timestamp == 0 or clearanceCm is None:
+            log_decision(f"US{sensorId}: sonar_read returned no new data.")
             continue
 
         latestSensorClearance[sensorId] = clearanceCm
         lastSensorTimestamp[sensorId] = timestamp
-
-
-def report_sonar_configuration():
-    print("Sonar configuration:")
-    for sensorId, pins in ultrasonicSensorPins.items():
-        triggerPin, echoPin = pins
-        print(
-            f"US{sensorId}: trigger pin {triggerPin}, echo pin {echoPin}, "
-            f"registered={triggerPin in board.active_sonar_map}"
+        log_decision(
+            f"US{sensorId}: stored sonar reading clearance={format_distance_m(clearanceCm)} "
+            f"timestamp={human_readable_time(timestamp)}."
         )
 
 
@@ -169,9 +142,14 @@ def read_vehicle_height(sensorId):
     timestamp = lastSensorTimestamp[sensorId]
 
     if clearanceCm is None or timestamp is None:
+        log_decision(f"US{sensorId}: no reading available to convert into vehicle height.")
         return None
 
     vehicleHeightCm = usSensorHeightCm - clearanceCm
+    log_decision(
+        f"US{sensorId}: converted clearance {format_distance_m(clearanceCm)} into "
+        f"vehicle height {format_distance_m(vehicleHeightCm)}."
+    )
     return vehicleHeightCm, timestamp
 
 
@@ -183,96 +161,6 @@ def both_traffic_lights_green():
     return trafficLightState[1] == "green" and trafficLightState[2] == "green"
 
 
-def clear_finished_vehicle_entries():
-    if not both_traffic_lights_green():
-        return
-
-    currentTime = time.time()
-    overheightVehicles[:] = [
-        vehicle
-        for vehicle in overheightVehicles
-        if currentTime - vehicle["last_seen"] <= vehicleRetentionWindowS
-    ]
-
-
-def get_latest_active_vehicle(sensorId):
-    for vehicle in reversed(overheightVehicles):
-        if vehicle["sensor"] == sensorId and vehicle["active"]:
-            return vehicle
-    return None
-
-
-def within_same_sensor_window(previousTimestamp, currentTimestamp):
-    if previousTimestamp is None:
-        return False
-    return currentTimestamp - previousTimestamp <= sameSensorWindowS
-
-
-def store_vehicle_sample(sensorId, reading):
-    vehicleHeightCm, timestamp = reading
-    vehicle = get_latest_active_vehicle(sensorId)
-
-    if vehicle is None or not within_same_sensor_window(vehicle["last_seen"], timestamp):
-        vehicle = {
-            "sensor": sensorId,
-            "detected_at": timestamp,
-            "last_seen": timestamp,
-            "height_samples_cm": [vehicleHeightCm],
-            "active": True,
-            "matchedToUs2": False,
-            "matchedUs1Detection": None,
-        }
-        overheightVehicles.append(vehicle)
-        return vehicle
-
-    if vehicle["last_seen"] != timestamp:
-        vehicle["height_samples_cm"].append(vehicleHeightCm)
-        vehicle["last_seen"] = timestamp
-
-    return vehicle
-
-
-def moving_average_height(vehicle):
-    heightSamples = vehicle["height_samples_cm"]
-    return sum(heightSamples) / len(heightSamples)
-
-
-def find_matching_us1_vehicle(us2Timestamp, us2HeightCm):
-    bestMatch = None
-    bestTimeError = None
-
-    for vehicle in overheightVehicles:
-        if vehicle["sensor"] != 1 or not vehicle["active"] or vehicle["matchedToUs2"]:
-            continue
-
-        us1Timestamp = vehicle["detected_at"]
-        timeDifference = us2Timestamp - us1Timestamp
-        timeError = abs(timeDifference - expectedUs1ToUs2TimeS)
-
-        if timeError > us1ToUs2ToleranceS:
-            continue
-
-        us1AverageHeightCm = moving_average_height(vehicle)
-        heightError = abs(us2HeightCm - us1AverageHeightCm)
-
-        if heightError > heightMatchToleranceCm:
-            continue
-
-        if bestMatch is None or timeError < bestTimeError:
-            bestMatch = vehicle
-            bestTimeError = timeError
-
-    return bestMatch
-
-
-def is_same_vehicle(us1Timestamp, us2Timestamp):
-    if us1Timestamp is None:
-        return False
-
-    timeDifference = us2Timestamp - us1Timestamp
-    return abs(timeDifference - expectedUs1ToUs2TimeS) <= us1ToUs2ToleranceS
-
-
 def initialise_traffic_light(trafficLightId):
     lightPins = trafficLightPins[trafficLightId]
 
@@ -280,22 +168,37 @@ def initialise_traffic_light(trafficLightId):
     board.digital_write(lightPins["yellow"], 0)
     board.digital_write(lightPins["red"], 0)
     trafficLightState[trafficLightId] = "green"
+    log_decision(f"Traffic light {trafficLightId}: initialised to green.")
 
 
 def start_traffic_light_sequence(trafficLightId, triggerTimestamp):
     if trafficLightTriggerTime[trafficLightId] is None:
         trafficLightTriggerTime[trafficLightId] = triggerTimestamp
+        log_decision(
+            f"Traffic light {trafficLightId}: sequence started at "
+            f"{human_readable_time(triggerTimestamp)}."
+        )
+    else:
+        log_decision(
+            f"Traffic light {trafficLightId}: sequence already active "
+            f"while {trafficLightState[trafficLightId]}, trigger ignored."
+        )
 
 
 def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
     lightPins = trafficLightPins[trafficLightId]
     elapsedTime = time.time() - triggerTimestamp
+    log_decision(
+        f"Traffic light {trafficLightId}: evaluating state from "
+        f"{trafficLightState[trafficLightId]} at {elapsedTime:.2f}s elapsed."
+    )
 
     if elapsedTime < 1:
         board.digital_write(lightPins["green"], 0)
         board.digital_write(lightPins["red"], 0)
         board.digital_write(lightPins["yellow"], 1)
         trafficLightState[trafficLightId] = "yellow"
+        log_decision(f"Traffic light {trafficLightId}: set to yellow ({elapsedTime:.2f}s elapsed).")
         return
 
     if elapsedTime < 31:
@@ -303,115 +206,67 @@ def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
         board.digital_write(lightPins["yellow"], 0)
         board.digital_write(lightPins["red"], 1)
         trafficLightState[trafficLightId] = "red"
+        log_decision(f"Traffic light {trafficLightId}: set to red ({elapsedTime:.2f}s elapsed).")
         return
 
     board.digital_write(lightPins["red"], 0)
     initialise_traffic_light(trafficLightId)
     trafficLightTriggerTime[trafficLightId] = None
-
-    if both_traffic_lights_green():
-        for vehicle in overheightVehicles:
-            vehicle["active"] = False
+    log_decision(f"Traffic light {trafficLightId}: sequence finished and reset to green.")
 
 
-def report_overheight(sensorId, averageHeightCm, detectedAt):
+def report_overheight(sensorId, heightCm, detectedAt):
     print(
         f"Overheight detected at US{sensorId}: "
-        f"{cm_to_m(averageHeightCm):.2f}m at Time: {human_readable_time(detectedAt)}"
+        f"{cm_to_m(heightCm):.2f}m at Time: {human_readable_time(detectedAt)}"
     )
-
-
-def report_live_sensor_reading(sensorId):
-    clearanceCm = latestSensorClearance[sensorId]
-    timestamp = lastSensorTimestamp[sensorId]
-
-    if clearanceCm is None or timestamp is None:
-        return
-
-    if lastReportedClearance[sensorId] == timestamp:
-        return
-
-    lastReportedClearance[sensorId] = timestamp
-    vehicleHeightCm = usSensorHeightCm - clearanceCm
-    print(
-        f"US{sensorId} raw clearance: {format_distance_m(clearanceCm)} | "
-        f"calculated vehicle height: {format_distance_m(vehicleHeightCm)} | "
-        f"time: {human_readable_time(timestamp)}"
-    )
-
-
-def report_no_data_status(sensorId):
-    currentTime = time.time()
-
-    if currentTime - lastNoDataReportTime[sensorId] < 1:
-        return
-
-    triggerPin = ultrasonicSensorPins[sensorId][0]
-    clearanceCm, timestamp = board.sonar_read(triggerPin)
-    lastNoDataReportTime[sensorId] = currentTime
-
-    print(
-        f"US{sensorId} no data yet | trigger pin: {triggerPin} | "
-        f"raw sonar_read: [{clearanceCm}, {timestamp}]"
-    )
-
-
-def run_live_test_mode():
-    print("Live sonar test mode started. Press Ctrl+C to stop.")
-    report_sonar_configuration()
-
-    while True:
-        try:
-            refresh_sonar_readings()
-            report_live_sensor_reading(1)
-            report_live_sensor_reading(2)
-            if lastSensorTimestamp[1] is None:
-                report_no_data_status(1)
-            if lastSensorTimestamp[2] is None:
-                report_no_data_status(2)
-            time.sleep(0.1)
-        except KeyboardInterrupt:
-            break
 
 
 def handle_us1_detection(reading, overheightLimitCm):
     if not is_overheight(reading, overheightLimitCm):
+        log_decision(
+            f"US1: vehicle height {format_distance_m(reading[0])} is not above the "
+            f"{format_distance_m(overheightLimitCm)} threshold."
+        )
         return
 
-    vehicle = store_vehicle_sample(1, reading)
-    averageHeightCm = moving_average_height(vehicle)
-    detectedAt = vehicle["detected_at"]
+    detectedHeightCm, detectedAt = reading
+    log_decision(
+        f"US1: vehicle height {format_distance_m(detectedHeightCm)} exceeded the "
+        f"{format_distance_m(overheightLimitCm)} threshold."
+    )
 
     if detectedAt == lastReportedDetection[1]:
+        log_decision("US1: duplicate timestamp detected, report skipped.")
         return
 
     lastReportedDetection[1] = detectedAt
-    report_overheight(1, averageHeightCm, detectedAt)
+    report_overheight(1, detectedHeightCm, detectedAt)
     start_traffic_light_sequence(1, detectedAt)
 
 
 def handle_us2_detection(reading, overheightLimitCm):
     if not is_overheight(reading, overheightLimitCm):
+        log_decision(
+            f"US2: vehicle height {format_distance_m(reading[0])} is not above the "
+            f"{format_distance_m(overheightLimitCm)} threshold."
+        )
         return
 
-    vehicle = store_vehicle_sample(2, reading)
-    averageHeightCm = moving_average_height(vehicle)
-    detectedAt = vehicle["detected_at"]
+    detectedHeightCm, detectedAt = reading
+    log_decision(
+        f"US2: vehicle height {format_distance_m(detectedHeightCm)} exceeded the "
+        f"{format_distance_m(overheightLimitCm)} threshold."
+    )
 
     if detectedAt == lastReportedDetection[2]:
+        log_decision("US2: duplicate timestamp detected, report skipped.")
         return
 
     lastReportedDetection[2] = detectedAt
-
-    matchingUs1Vehicle = find_matching_us1_vehicle(detectedAt, averageHeightCm)
-
-    if matchingUs1Vehicle is None:
-        start_traffic_light_sequence(1, detectedAt)
-    else:
-        matchingUs1Vehicle["matchedToUs2"] = True
-        vehicle["matchedUs1Detection"] = matchingUs1Vehicle["detected_at"]
-
-    report_overheight(2, averageHeightCm, detectedAt)
+    report_overheight(2, detectedHeightCm, detectedAt)
+    log_decision("US2: same-vehicle matching disabled, triggering both traffic lights.")
+    start_traffic_light_sequence(1, detectedAt)
     start_traffic_light_sequence(2, detectedAt)
 
 
@@ -433,14 +288,23 @@ def prompt_overheight_limit_cm():
 def update_all_traffic_lights():
     for trafficLightId, triggerTimestamp in trafficLightTriggerTime.items():
         if triggerTimestamp is not None:
+            log_decision(
+                f"Traffic light {trafficLightId}: active trigger from "
+                f"{human_readable_time(triggerTimestamp)}, updating sequence."
+            )
             update_traffic_light_sequence(trafficLightId, triggerTimestamp)
+        else:
+            log_decision(
+                f"Traffic light {trafficLightId}: no active trigger, staying "
+                f"{trafficLightState[trafficLightId]}."
+            )
 
 
 def prompt_run_mode():
     return (
         input(
             "Select mode:\n"
-            "1. Live sonar test\n"
+            "1. Logged overheight monitoring\n"
             "2. Full overheight monitoring\n"
             "Press Enter for full monitoring: "
         ).strip()
@@ -455,11 +319,12 @@ def initialise_subsystem():
 
 # --- Main Program ---
 def main():
+    global decisionLoggingEnabled
     runMode = prompt_run_mode()
 
     if runMode == "1":
-        run_live_test_mode()
-        return
+        decisionLoggingEnabled = True
+        print("Decision log mode enabled.")
 
     overheightLimitCm = prompt_overheight_limit_cm()
     initialise_subsystem()
@@ -479,10 +344,10 @@ def main():
                 handle_us2_detection(us2Reading, overheightLimitCm)
 
             update_all_traffic_lights()
-            clear_finished_vehicle_entries()
-            time.sleep(0.1)
+            time.sleep(mainLoopIntervalS)
         except KeyboardInterrupt:
-            break
+            board.shutdown()
+            quit()
 
 if __name__ == "__main__":
     main()

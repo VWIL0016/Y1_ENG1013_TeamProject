@@ -1,10 +1,9 @@
-# Version 3.0
+# Version 4.0
 # Author: Vivek Wilson
 
 '''
 Notes:
 - Everything works (1.R1-1.R4, 1.G1)
--Waiting on confirmation before adding time-reset
 '''
 
 from pymata4 import pymata4 as pymata
@@ -190,6 +189,12 @@ def start_traffic_light_sequence(trafficLightId, triggerTimestamp):
         log_decision(
             f"Traffic light {trafficLightId}: sequence started at "
             f"{human_readable_time(triggerTimestamp)}."
+        )
+    elif trafficLightState[trafficLightId] == "red":
+        trafficLightTriggerTime[trafficLightId] = time.time() - 1
+        log_decision(
+            f"Traffic light {trafficLightId}: overheight detected during red, "
+            f"red timer reset for another 30 seconds."
         )
     else:
         log_decision(

@@ -380,7 +380,8 @@ def initialise_subsystem():
 # --- Main Program ---
 def main():
     global decisionLoggingEnabled
-    runMode = prompt_run_mode()
+    # runMode = prompt_run_mode()
+    runMode = 2
 
     if runMode == "1":
         decisionLoggingEnabled = True

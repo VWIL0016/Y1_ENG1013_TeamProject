@@ -1,10 +1,7 @@
-# Version 4.0
-# Author: Vivek Wilson
-
-'''
-Notes:
-- Everything works (1.R1-1.R4, 1.G1)
-'''
+# Approach Height Detection Subsystem - Monitors vehicle clearance using ultrasonic sensors
+# Created By  : Vivek Wilson
+# Created Date: 12/05/2026
+# version = '6.0'
 
 from pymata4 import pymata4 as pymata
 import time
@@ -17,6 +14,8 @@ usSensorHeightCm = 800
 defaultOverheightLimitM = 4.0
 defaultOverheightLimitCm = defaultOverheightLimitM * 100
 mainLoopIntervalS = .1
+trafficLightYellowDurationS = 1
+trafficLightRedYellowDurationS = 31
 
 trafficLightPins = {
     1: {"red": 4, "yellow": 3, "green": 2},
@@ -88,7 +87,16 @@ for pin in warningLightPins:
     board.set_pin_mode_digital_output(pin)
 
 
-def sonar_callback(data): 
+def sonar_callback(data):
+    """
+    Callback function triggered when ultrasonic sensor provides new reading.
+
+    Parameters:
+    data (list): Sensor data including pin, clearance distance, and timestamp
+
+    Returns:
+    None
+    """
     if len(data) < 3:
         return
 
@@ -111,6 +119,15 @@ for triggerPin, echoPin in ultrasonicSensorPins.values():
 # --- Helper Functions ---
 
 def pin_test_sequence():
+    """
+    Tests all LED pins to verify hardware connections.
+
+    Parameters:
+    None
+
+    Returns:
+    None
+    """
     for pinset in trafficLightPins:
         for func, pin in trafficLightPins[pinset].items():
             print(f"Testing TL{pinset} {func} pin {pin} ON")
@@ -126,23 +143,68 @@ def pin_test_sequence():
        print(f"Sensor {sensorId}: trigger pin {pins[0]}; echo pin {pins[1]}")
 
 def human_readable_time(timestamp):
+    """
+    Converts Unix timestamp to human-readable date and time format.
+
+    Parameters:
+    timestamp (float): Unix timestamp in seconds
+
+    Returns:
+    string: Formatted date and time string (YYYY-MM-DD HH:MM:SS)
+    """
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
 
 
 def cm_to_m(distanceCm):
+    """
+    Converts distance from centimeters to meters.
+
+    Parameters:
+    distanceCm (float): Distance in centimeters
+
+    Returns:
+    float: Distance in meters
+    """
     return distanceCm / 100
 
 
 def format_distance_m(distanceCm):
+    """
+    Formats distance in centimeters to a readable string in meters.
+
+    Parameters:
+    distanceCm (float): Distance in centimeters
+
+    Returns:
+    string: Formatted distance string with 2 decimal places (e.g., "3.25m")
+    """
     return f"{cm_to_m(distanceCm):.2f}m"
 
 
 def log_decision(message):
+    """
+    Logs decision messages when logging is enabled.
+
+    Parameters:
+    message (string): Message to log
+
+    Returns:
+    None
+    """
     if decisionLoggingEnabled:
         print(f"[LOG] {message}")
 
 
 def refresh_sonar_readings():
+    """
+    Reads latest ultrasonic sensor data and updates sensor clearance values.
+
+    Parameters:
+    None
+
+    Returns:
+    None
+    """
     for sensorId, pins in ultrasonicSensorPins.items():
         triggerPin = pins[0]
         clearanceCm, timestamp = board.sonar_read(triggerPin)
@@ -160,6 +222,15 @@ def refresh_sonar_readings():
 
 
 def read_vehicle_height(sensorId):
+    """
+    Calculates vehicle height from ultrasonic sensor clearance reading.
+
+    Parameters:
+    sensorId (int): ID of the ultrasonic sensor (1 or 2)
+
+    Returns:
+    tuple: (vehicleHeightCm, timestamp) or None if no reading available
+    """
     clearanceCm = latestSensorClearance[sensorId]
     timestamp = lastSensorTimestamp[sensorId]
 
@@ -176,19 +247,56 @@ def read_vehicle_height(sensorId):
 
 
 def is_overheight(reading, overheightLimitCm):
+    """
+    Determines if a vehicle height reading exceeds the overheight threshold.
+
+    Parameters:
+    reading (tuple): Tuple containing (vehicleHeightCm, timestamp) or None
+    overheightLimitCm (float): Height threshold in centimeters
+
+    Returns:
+    bool: True if reading exceeds threshold, False otherwise
+    """
     return reading is not None and reading[0] > overheightLimitCm
 
 
 def both_traffic_lights_green():
+    """
+    Checks if both traffic lights are currently set to green.
+
+    Parameters:
+    None
+
+    Returns:
+    bool: True if both lights are green, False otherwise
+    """
     return trafficLightState[1] == "green" and trafficLightState[2] == "green"
 
 
 def set_warning_light_output(activePinIndex):
+    """
+    Controls warning light output by setting active pin index.
+
+    Parameters:
+    activePinIndex (int): Index of the pin to activate (0, 1) or None to turn off
+
+    Returns:
+    None
+    """
     for pinIndex, pin in enumerate(warningLightPins):
         board.digital_write(pin, 1 if pinIndex == activePinIndex else 0)
 
 
 def initialise_traffic_light(trafficLightId):
+    """
+    Initializes a traffic light to green state.
+
+    Parameters:
+    trafficLightId (int): ID of the traffic light (1 or 2)
+
+    Returns:
+    None
+    """
     lightPins = trafficLightPins[trafficLightId]
 
     board.digital_write(lightPins["green"], 1)
@@ -199,6 +307,16 @@ def initialise_traffic_light(trafficLightId):
 
 
 def start_traffic_light_sequence(trafficLightId, triggerTimestamp):
+    """
+    Initiates or resets a traffic light warning sequence for overheight detection.
+
+    Parameters:
+    trafficLightId (int): ID of the traffic light (1 or 2)
+    triggerTimestamp (float): Unix timestamp of the trigger event
+
+    Returns:
+    None
+    """
     if trafficLightTriggerTime[trafficLightId] is None:
         trafficLightTriggerTime[trafficLightId] = triggerTimestamp
         log_decision(
@@ -219,6 +337,16 @@ def start_traffic_light_sequence(trafficLightId, triggerTimestamp):
 
 
 def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
+    """
+    Updates traffic light state in the warning sequence (yellow->red->green).
+
+    Parameters:
+    trafficLightId (int): ID of the traffic light (1 or 2)
+    triggerTimestamp (float): Unix timestamp when sequence was triggered
+
+    Returns:
+    None
+    """
     lightPins = trafficLightPins[trafficLightId]
     elapsedTime = time.time() - triggerTimestamp
     log_decision(
@@ -226,7 +354,7 @@ def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
         f"{trafficLightState[trafficLightId]} at {elapsedTime:.2f}s elapsed."
     )
 
-    if elapsedTime < 1:
+    if elapsedTime < trafficLightYellowDurationS:
         board.digital_write(lightPins["green"], 0)
         board.digital_write(lightPins["red"], 0)
         board.digital_write(lightPins["yellow"], 1)
@@ -234,7 +362,7 @@ def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
         log_decision(f"Traffic light {trafficLightId}: set to yellow ({elapsedTime:.2f}s elapsed).")
         return
 
-    if elapsedTime < 31:
+    if elapsedTime < trafficLightYellowDurationS + trafficLightRedYellowDurationS:
         board.digital_write(lightPins["green"], 0)
         board.digital_write(lightPins["yellow"], 0)
         board.digital_write(lightPins["red"], 1)
@@ -249,6 +377,15 @@ def update_traffic_light_sequence(trafficLightId, triggerTimestamp):
 
 
 def start_warning_light(triggerTimestamp):
+    """
+    Initiates warning light blinking sequence.
+
+    Parameters:
+    triggerTimestamp (float): Unix timestamp of the trigger event
+
+    Returns:
+    None
+    """
     global warningLightTriggerTime
     if warningLightTriggerTime is None:
         warningLightTriggerTime = time.time()
@@ -261,6 +398,15 @@ def start_warning_light(triggerTimestamp):
 
 
 def update_warning_light_sequence(triggerTimestamp):
+    """
+    Updates warning light blinking state in the active sequence.
+
+    Parameters:
+    triggerTimestamp (float): Unix timestamp when sequence was triggered
+
+    Returns:
+    None
+    """
     global warningLightState, warningLightTriggerTime
     elapsedTime = time.time() - triggerTimestamp
     log_decision(
@@ -286,6 +432,17 @@ def update_warning_light_sequence(triggerTimestamp):
 
 
 def report_overheight(sensorId, heightCm, detectedAt):
+    """
+    Reports an overheight vehicle detection with sensor ID, height, and timestamp.
+
+    Parameters:
+    sensorId (int): ID of the ultrasonic sensor that detected overheight
+    heightCm (float): Vehicle height in centimeters
+    detectedAt (float): Unix timestamp of detection
+
+    Returns:
+    None
+    """
     print(
         f"Overheight detected at US{sensorId}: "
         f"{cm_to_m(heightCm):.2f}m at Time: {human_readable_time(detectedAt)}"
@@ -293,6 +450,16 @@ def report_overheight(sensorId, heightCm, detectedAt):
 
 
 def handle_us1_detection(reading, overheightLimitCm):
+    """
+    Processes overheight detection from first ultrasonic sensor.
+
+    Parameters:
+    reading (tuple): Tuple containing (vehicleHeightCm, timestamp) or None
+    overheightLimitCm (float): Height threshold in centimeters
+
+    Returns:
+    None
+    """
     if not is_overheight(reading, overheightLimitCm):
         log_decision(
             f"US1: vehicle height {format_distance_m(reading[0])} is not above the "
@@ -317,6 +484,16 @@ def handle_us1_detection(reading, overheightLimitCm):
 
 
 def handle_us2_detection(reading, overheightLimitCm):
+    """
+    Processes overheight detection from second ultrasonic sensor.
+
+    Parameters:
+    reading (tuple): Tuple containing (vehicleHeightCm, timestamp) or None
+    overheightLimitCm (float): Height threshold in centimeters
+
+    Returns:
+    None
+    """
     if not is_overheight(reading, overheightLimitCm):
         log_decision(
             f"US2: vehicle height {format_distance_m(reading[0])} is not above the "
@@ -343,6 +520,15 @@ def handle_us2_detection(reading, overheightLimitCm):
 
 
 def prompt_overheight_limit_cm():
+    """
+    Prompts user to input overheight threshold value in meters.
+
+    Parameters:
+    None
+
+    Returns:
+    float: User-specified overheight threshold in centimeters
+    """
     while True:
         try:
             overheightLimitM = float(
@@ -358,6 +544,15 @@ def prompt_overheight_limit_cm():
 
 
 def update_all_lights():
+    """
+    Updates all active traffic and warning light sequences.
+
+    Parameters:
+    None
+
+    Returns:
+    None
+    """
     for trafficLightId, triggerTimestamp in trafficLightTriggerTime.items():
         if triggerTimestamp is not None:
             log_decision(
@@ -375,6 +570,15 @@ def update_all_lights():
 
 
 def prompt_run_mode():
+    """
+    Prompts user to select between logged or full monitoring mode.
+
+    Parameters:
+    None
+
+    Returns:
+    string: Selected mode ("1" for logged or "2" for full)
+    """
     return (
         input(
             "Select mode:\n"
@@ -387,6 +591,15 @@ def prompt_run_mode():
 
 
 def initialise_subsystem():
+    """
+    Initializes all hardware subsystem components to default states.
+
+    Parameters:
+    None
+
+    Returns:
+    None
+    """
     for trafficLightId in trafficLightPins:
         initialise_traffic_light(trafficLightId)
     set_warning_light_output(None)
@@ -394,6 +607,15 @@ def initialise_subsystem():
 
 # --- Main Program ---
 def main():
+    """
+    Main program loop for overheight detection and traffic light control.
+
+    Parameters:
+    None
+
+    Returns:
+    None
+    """
     global decisionLoggingEnabled
     # runMode = prompt_run_mode()
     runMode = 2

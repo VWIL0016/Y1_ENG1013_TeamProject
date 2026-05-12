@@ -24,11 +24,11 @@ trafficLightPins = {
 }
 
 ultrasonicSensorPins = {
-    1: (8, 9),
-    2: (10, 11),
+    1: (11, 10),
+    2: (13, 12),
 }
 
-warningLightPins = (12, 13)
+warningLightPins = (8, 9)
 
 sonarPinToSensor = {
     ultrasonicSensorPins[1][0]: 1,
@@ -109,6 +109,21 @@ for triggerPin, echoPin in ultrasonicSensorPins.values():
 
 
 # --- Helper Functions ---
+
+def pin_test_sequence():
+    for pinset in trafficLightPins:
+        for func, pin in trafficLightPins[pinset].items():
+            print(f"Testing TL{pinset} {func} pin {pin} ON")
+            board.digital_write(pin, 1)
+            time.sleep(1)
+            board.digital_write(pin, 0)
+    for pin in warningLightPins:
+        print(f"Testing warning light pin {pin} ON")
+        board.digital_write(pin, 1)
+        time.sleep(1)
+        board.digital_write(pin, 0)
+    for sensorId, pins in ultrasonicSensorPins.items():
+       print(f"Sensor {sensorId}: trigger pin {pins[0]}; echo pin {pins[1]}")
 
 def human_readable_time(timestamp):
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(timestamp))
@@ -386,6 +401,7 @@ def main():
     if runMode == "1":
         decisionLoggingEnabled = True
         print("Decision log mode enabled.")
+        pin_test_sequence()
 
     overheightLimitCm = prompt_overheight_limit_cm()
     initialise_subsystem()
@@ -406,6 +422,8 @@ def main():
 
             update_all_lights()
             time.sleep(mainLoopIntervalS)
+            if runMode == "1":
+                input("Press Enter for next iteration...")
         except KeyboardInterrupt:
             board.shutdown()
             quit()

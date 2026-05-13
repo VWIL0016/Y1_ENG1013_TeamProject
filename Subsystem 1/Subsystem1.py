@@ -617,13 +617,16 @@ def main():
     None
     """
     global decisionLoggingEnabled
-    # runMode = prompt_run_mode()
-    runMode = 2
+    runMode = prompt_run_mode()
+    # runMode = 2
 
     if runMode == "1":
         decisionLoggingEnabled = True
         print("Decision log mode enabled.")
-        pin_test_sequence()
+        while True:
+            pin_test_sequence()
+            if input("Repeat Test? \nY/N: ").strip().lower() != "y":
+                break
 
     overheightLimitCm = prompt_overheight_limit_cm()
     initialise_subsystem()

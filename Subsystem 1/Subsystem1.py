@@ -582,8 +582,8 @@ def prompt_run_mode():
     return (
         input(
             "Select mode:\n"
-            "1. Logged overheight monitoring\n"
-            "2. Full overheight monitoring\n"
+            "1. Debug Mode (Logging + Pin Testing)\n"
+            "2. Normal\n"
             "Press Enter for full monitoring: "
         ).strip()
         or "2"
@@ -618,7 +618,7 @@ def main():
     """
     global decisionLoggingEnabled
     runMode = prompt_run_mode()
-    # runMode = 2
+    #runMode = 2
 
     if runMode == "1":
         decisionLoggingEnabled = True
